@@ -46,6 +46,16 @@ from threading import Timer, Thread
 import sys
 import hashlib
 import re
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+from jose import jwk, constants
+import json
+import msal
+import hashlib
+import base64
+import urllib
+
 logger = get_logger(__name__)
 # pylint:disable=unused-argument
 # pylint: disable=too-many-locals
@@ -1647,6 +1657,14 @@ def client_side_proxy_wrapper(cmd,
                                 summary=f'{operating_system} is not supported yet')
         raise ClientRequestError(f'The {operating_system} platform is not currently supported.')
 
+    account1 = get_subscription_id(cmd.cli_ctx)
+    account1 = Profile().get_subscription(account1)
+    user_type1 = account1['user']['type']
+    user_name1 = account1['user']['name']
+    print(user_name1)
+
+    generate_popkey(cmd,user_name1)
+
     install_location = os.path.expanduser(os.path.join('~', install_location_string))
     args.append(install_location)
     install_dir = os.path.dirname(install_location)
@@ -2055,3 +2073,80 @@ def check_if_csp_is_running(clientproxy_process):
         return True
     else:
         return False
+
+def generate_popkey(cmd, username):
+    key = rsa.generate_private_key(public_exponent=65537,key_size=2048,backend=default_backend())
+    public_key = key.public_key().public_bytes(encoding=serialization.Encoding.PEM,format=serialization.PublicFormat.SubjectPublicKeyInfo)
+    private_key = key.private_bytes(encoding=serialization.Encoding.PEM,format=serialization.PrivateFormat.TraditionalOpenSSL,encryption_algorithm=serialization.NoEncryption())
+    jwk1 = jwk.RSAKey(algorithm=constants.Algorithms.RS256, key=public_key.decode('utf-8')).to_dict()    
+    print(json.dumps(jwk.RSAKey(algorithm=constants.Algorithms.RS256, key=public_key.decode('utf-8')).to_dict()))    
+    #jwk1 = {"alg": "RS256", "kty": "RSA", "n": "8tAf9568LwfMhQUyCD9rA07w08T1e21TyuobRJ4DpWmAoVZEW0HYVOExwFfcNq6y_pevl2v3_mWdgOjiPuNCu917ZYn2xIBDOUs-yE7A2QaSqYUqis5aKFs7Fa6y8bUZ2dTrz0neKtTdIDGaX3_lZeT1KTaoukT5GHbujiNnRHKalGyn-M6RJciZt-nmXMz-a8NOPDcBac7y3Au6HEFLktZqpaZ8IdiJNs7qEzZugTPUqQV6eDzr5UYcecnQydXcACudMGX_RfiAWXP0Y25Oam2hILXxjFGRFa2GVQFKiXomzPc_d92bKNrGxc3a6OK8a5aJvdgA3mCm8bLomLlLzw", "e": "AQAB"}
+    jwkstring = json.dumps(jwk1)
+    #print("jwkstring")
+    print(type(jwkstring))
+    print(jwkstring)
+    
+
+    jwksha = hashlib.sha256(jwkstring.encode('utf-8')).digest()
+    print("jwk sha")
+    print(jwksha)
+    #print(type(jwksha))
+
+
+    jwkTP = base64.urlsafe_b64encode(jwksha).decode('utf-8')
+    #remove padding '=' character
+    if jwkTP[len(jwkTP)-1] == '=':
+        jwkTP = jwkTP[:-1]        
+    
+    print("jwk TP")
+    print(jwkTP)
+    #print(type(jwkTP))    
+
+    req_cnfJSON = {"kid":jwkTP, "xms_ksl":"sw"}
+    req_cnf = base64.urlsafe_b64encode(json.dumps(req_cnfJSON).encode('utf-8')).decode('utf-8')
+
+    #remove padding '=' character
+    if req_cnf[len(req_cnf)-1] == '=':
+        req_cnf = req_cnf[:-1]        
+
+    print("req_cnf")
+    print(req_cnf)
+    #print(type(req_cnf))
+
+
+    scope = "6256c85f-0aad-4d50-b960-e6e9b21efe35/.default"
+    #scope = "https://pas.windows.net/CheckMyAccess/Linux/.default"    
+    data = {"token_type": "pop", "key_id": "key1", "req_cnf": req_cnf}
+    print(data)
+    
+    
+    profile = Profile(cli_ctx=cmd.cli_ctx)    
+    credential, _, _ = profile.get_login_credentials(subscription_id=profile.get_subscription()["id"], resource=scope)
+    print("get token")
+    accessToken = credential.get_token(scope, data=data)
+    jwt = accessToken.token
+    print(jwt)
+    
+def get_lab_app():
+    authority = "https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47"
+    return msal.PublicClientApplication("04b07795-8ddb-461a-bbee-02f9e1bf7b46",client_credential=None,authority=authority)
+
+#def _prepare_jwk_data():
+#    modulus, exponent = _get_modulus_exponent()
+#    key_hash = hashlib.sha256()
+#    key_hash.update(modulus.encode('utf-8'))
+#    key_hash.update(exponent.encode('utf-8'))
+#    key_id = key_hash.hexdigest()
+#    jwk = {
+#        "kty": "RSA",
+#        "n": modulus,
+#        "e": exponent,
+#        "kid": key_id
+#    }
+#    json_jwk = json.dumps(jwk)
+#    data = {
+#        "token_type": "ssh-cert",
+#        "req_cnf": json_jwk,
+#        "key_id": key_id
+#    }
+#    return data 
