@@ -10,9 +10,11 @@ import json
 import tempfile
 import time
 from subprocess import Popen, PIPE, run, STDOUT, call, DEVNULL
-from base64 import b64encode, b64decode
+from base64 import b64encode, b64decode, decode, encode
 import stat
 import platform
+
+from cryptography.hazmat.primitives.hashes import HashAlgorithm
 from azure.core.exceptions import ClientAuthenticationError
 import yaml
 import requests
@@ -54,7 +56,11 @@ import json
 import msal
 import hashlib
 import base64
-import urllib
+import uuid
+from uuid import UUID
+from . import rsa_parser
+from Crypto.PublicKey import RSA
+from Crypto.Signature.pkcs1_15 import PKCS115_SigScheme
 
 logger = get_logger(__name__)
 # pylint:disable=unused-argument
@@ -2078,6 +2084,9 @@ def generate_popkey(cmd, username):
     key = rsa.generate_private_key(public_exponent=65537,key_size=2048,backend=default_backend())
     public_key = key.public_key().public_bytes(encoding=serialization.Encoding.PEM,format=serialization.PublicFormat.SubjectPublicKeyInfo)
     private_key = key.private_bytes(encoding=serialization.Encoding.PEM,format=serialization.PrivateFormat.TraditionalOpenSSL,encryption_algorithm=serialization.NoEncryption())
+    pubkey = RSA.importKey(public_key)
+    print(pubkey.n)
+    print(pubkey.e)
     jwk1 = jwk.RSAKey(algorithm=constants.Algorithms.RS256, key=public_key.decode('utf-8')).to_dict()    
     print(json.dumps(jwk.RSAKey(algorithm=constants.Algorithms.RS256, key=public_key.decode('utf-8')).to_dict()))    
     #jwk1 = {"alg": "RS256", "kty": "RSA", "n": "8tAf9568LwfMhQUyCD9rA07w08T1e21TyuobRJ4DpWmAoVZEW0HYVOExwFfcNq6y_pevl2v3_mWdgOjiPuNCu917ZYn2xIBDOUs-yE7A2QaSqYUqis5aKFs7Fa6y8bUZ2dTrz0neKtTdIDGaX3_lZeT1KTaoukT5GHbujiNnRHKalGyn-M6RJciZt-nmXMz-a8NOPDcBac7y3Au6HEFLktZqpaZ8IdiJNs7qEzZugTPUqQV6eDzr5UYcecnQydXcACudMGX_RfiAWXP0Y25Oam2hILXxjFGRFa2GVQFKiXomzPc_d92bKNrGxc3a6OK8a5aJvdgA3mCm8bLomLlLzw", "e": "AQAB"}
@@ -2124,29 +2133,47 @@ def generate_popkey(cmd, username):
     credential, _, _ = profile.get_login_credentials(subscription_id=profile.get_subscription()["id"], resource=scope)
     print("get token")
     accessToken = credential.get_token(scope, data=data)
-    jwt = accessToken.token
-    print(jwt)
-    
-def get_lab_app():
-    authority = "https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47"
-    return msal.PublicClientApplication("04b07795-8ddb-461a-bbee-02f9e1bf7b46",client_credential=None,authority=authority)
+    jwtToken = accessToken.token
+    print(jwtToken)
 
-#def _prepare_jwk_data():
-#    modulus, exponent = _get_modulus_exponent()
-#    key_hash = hashlib.sha256()
-#    key_hash.update(modulus.encode('utf-8'))
-#    key_hash.update(exponent.encode('utf-8'))
-#    key_id = key_hash.hexdigest()
-#    jwk = {
-#        "kty": "RSA",
-#        "n": modulus,
-#        "e": exponent,
-#        "kid": key_id
-#    }
-#    json_jwk = json.dumps(jwk)
-#    data = {
-#        "token_type": "ssh-cert",
-#        "req_cnf": json_jwk,
-#        "key_id": key_id
-#    }
-#    return data 
+    from datetime import datetime
+    print(datetime.utcnow().timestamp())
+    print(time.time())
+
+    nonce = uuid.uuid4().hex
+    print (nonce)
+    header = {"typ":"pop","alg":"RS256","kid":jwkTP}
+    headerB64 = base64.urlsafe_b64encode(json.dumps(header).encode('utf-8')).decode('utf-8')
+
+    #remove padding '=' character
+    if headerB64[len(headerB64)-1] == '=':
+        headerB64 = headerB64[:-1]
+
+    print(header)
+    print(headerB64)  
+
+
+    eB64 = base64.urlsafe_b64encode(json.dumps(pubkey.e).encode('utf-8')).decode('utf-8')
+    nB64 = base64.urlsafe_b64encode(json.dumps(pubkey.n).encode('utf-8')).decode('utf-8')
+
+    popJwk = {"e":eB64,"kty":"RSA","n":nB64,"alg":"RS256","kid":jwkTP} #eB64, nB64, swk.keyID)
+    payload = {"at":jwtToken,"ts":time.time(),"u":"kd.com","cnf":{"jwk":{"e":eB64,"kty":"RSA","n":nB64,"alg":"RS256","kid":jwkTP}},"nonce":nonce} #`, tkn.poPKey.JWK()
+    payloadB64 = base64.urlsafe_b64encode(json.dumps(payload).encode('utf-8')).decode('utf-8')
+    
+    h256 = hashlib.sha256((headerB64+"."+payloadB64).encode('utf-8')).digest()
+    #h256 := sha256.Sum256([]byte(headerB64 + "." + payloadB64))
+    
+    #signer = PKCS115_SigScheme(key)
+    #signature = signer.sign(h256)
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding
+
+    signature = key.sign(h256, padding.PSS(mgf=padding.MGF1(hashes.SHA256()),salt_length=padding.PSS.MAX_LENGTH),hashes.SHA256())
+    #signature = pow(hash, key.d, key.n)
+    #print(signature)
+    signatureB64 = base64.urlsafe_b64encode(signature)
+    #print(signatureB64.decode('utf-8'))
+
+    poptoken = headerB64 + "." + payloadB64 + "." + signatureB64.decode('utf-8')
+    print("pop token:")
+    print(poptoken)
