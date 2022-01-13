@@ -58,7 +58,6 @@ import hashlib
 import base64
 import uuid
 from uuid import UUID
-from . import rsa_parser
 from Crypto.PublicKey import RSA
 from Crypto.Signature.pkcs1_15 import PKCS115_SigScheme
 
@@ -2088,13 +2087,17 @@ def generate_popkey(cmd, username):
     print(pubkey.n)
     print(pubkey.e)
     jwk1 = jwk.RSAKey(algorithm=constants.Algorithms.RS256, key=public_key.decode('utf-8')).to_dict()    
-    print(json.dumps(jwk.RSAKey(algorithm=constants.Algorithms.RS256, key=public_key.decode('utf-8')).to_dict()))    
+    #print(json.dumps(jwk.RSAKey(algorithm=constants.Algorithms.RS256, key=public_key.decode('utf-8')).to_dict()))    
     #jwk1 = {"alg": "RS256", "kty": "RSA", "n": "8tAf9568LwfMhQUyCD9rA07w08T1e21TyuobRJ4DpWmAoVZEW0HYVOExwFfcNq6y_pevl2v3_mWdgOjiPuNCu917ZYn2xIBDOUs-yE7A2QaSqYUqis5aKFs7Fa6y8bUZ2dTrz0neKtTdIDGaX3_lZeT1KTaoukT5GHbujiNnRHKalGyn-M6RJciZt-nmXMz-a8NOPDcBac7y3Au6HEFLktZqpaZ8IdiJNs7qEzZugTPUqQV6eDzr5UYcecnQydXcACudMGX_RfiAWXP0Y25Oam2hILXxjFGRFa2GVQFKiXomzPc_d92bKNrGxc3a6OK8a5aJvdgA3mCm8bLomLlLzw", "e": "AQAB"}
-    jwkstring = json.dumps(jwk1)
-    #print("jwkstring")
-    print(type(jwkstring))
-    print(jwkstring)
     
+    eB64 = base64.urlsafe_b64encode(json.dumps(jwk1["e"]).encode('utf-8')).decode('utf-8')
+    nB64 = base64.urlsafe_b64encode(json.dumps(jwk1["n"]).encode('utf-8')).decode('utf-8')
+
+    jwk2 = {"kty":"RSA","n":jwk1["n"],"e":jwk1["e"]}
+    jwkstring = json.dumps(jwk2)
+    #print("jwkstring")
+    #print(type(jwkstring))
+    print(jwkstring)
 
     jwksha = hashlib.sha256(jwkstring.encode('utf-8')).digest()
     print("jwk sha")
@@ -2111,7 +2114,7 @@ def generate_popkey(cmd, username):
     print(jwkTP)
     #print(type(jwkTP))    
 
-    req_cnfJSON = {"kid":jwkTP, "xms_ksl":"sw"}
+    req_cnfJSON = {"kid":jwkTP,"xms_ksl":"sw"}
     req_cnf = base64.urlsafe_b64encode(json.dumps(req_cnfJSON).encode('utf-8')).decode('utf-8')
 
     #remove padding '=' character
@@ -2125,7 +2128,7 @@ def generate_popkey(cmd, username):
 
     scope = "6256c85f-0aad-4d50-b960-e6e9b21efe35/.default"
     #scope = "https://pas.windows.net/CheckMyAccess/Linux/.default"    
-    data = {"token_type": "pop", "key_id": "key1", "req_cnf": req_cnf}
+    data = {"token_type":"pop","key_id":jwkTP,"req_cnf": req_cnf}
     print(data)
     
     
@@ -2153,11 +2156,18 @@ def generate_popkey(cmd, username):
     print(headerB64)  
 
 
-    eB64 = base64.urlsafe_b64encode(json.dumps(pubkey.e).encode('utf-8')).decode('utf-8')
-    nB64 = base64.urlsafe_b64encode(json.dumps(pubkey.n).encode('utf-8')).decode('utf-8')
+    eB64 = base64.urlsafe_b64encode(json.dumps(jwk1["e"]).encode('utf-8')).decode('utf-8')
+    nB64 = base64.urlsafe_b64encode(json.dumps(jwk1["n"]).encode('utf-8')).decode('utf-8')
 
-    popJwk = {"e":eB64,"kty":"RSA","n":nB64,"alg":"RS256","kid":jwkTP} #eB64, nB64, swk.keyID)
-    payload = {"at":jwtToken,"ts":time.time(),"u":"kd.com","cnf":{"jwk":{"e":eB64,"kty":"RSA","n":nB64,"alg":"RS256","kid":jwkTP}},"nonce":nonce} #`, tkn.poPKey.JWK()
+    print (pubkey.e)
+    print (eB64)
+    print (pubkey.n)
+    print (nB64)
+    print(jwk1["e"])
+    print(jwk1["n"])
+
+    
+    payload = {"at":jwtToken,"ts":time.time(),"u":"d2a4b463-a186-4f7f-bfd9-f10543790a75.eastus2euap.k8sconnect.azure.com","cnf":{"jwk":{"e":jwk1["e"],"kty":"RSA","n":jwk1["n"],"alg":"RS256","kid":jwkTP}},"nonce":nonce} #`, tkn.poPKey.JWK()
     payloadB64 = base64.urlsafe_b64encode(json.dumps(payload).encode('utf-8')).decode('utf-8')
     
     h256 = hashlib.sha256((headerB64+"."+payloadB64).encode('utf-8')).digest()
