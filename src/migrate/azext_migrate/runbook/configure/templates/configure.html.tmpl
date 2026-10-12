@@ -982,9 +982,15 @@ function renderOverrides() {
   const clearBtn = document.getElementById('entClear');
   if (clearBtn) clearBtn.addEventListener('click', e => {
     e.preventDefault(); e.stopPropagation(); // keep the disclosure from toggling
-    // Clear the workload's overrides but keep an empty entity object.
-    const wo = DOC.stepInputs[sid].workloadOverrides;
-    if (wo && wo[cur.id]) wo[cur.id] = {};
+    // Remove only the user-editable overrides. Keep the entity entry and any
+    // non-editable (service-set) fields, so the override stays a valid, non-
+    // empty JSON object and upload validation still passes.
+    const ov = (DOC.stepInputs[sid].workloadOverrides || {})[cur.id];
+    if (ov && typeof ov === 'object' && !Array.isArray(ov)) {
+      entityFields(sid).forEach(f => delete ov[f]);
+    } else {
+      ensureWo(sid, cur.id);
+    }
     renderForm(); toast(`Removed all overrides for ${cur.name}.`);
   });
   pane.querySelectorAll('[data-revert]').forEach(b => b.addEventListener('click', () => {
@@ -1057,8 +1063,9 @@ function coerce(raw, rule) {
 }
 function ensureWo(sid, eid) {
   const s = DOC.stepInputs[sid];
-  if (!s.workloadOverrides) s.workloadOverrides = {};
-  if (!s.workloadOverrides[eid]) s.workloadOverrides[eid] = {};
+  const obj = v => v && typeof v === 'object' && !Array.isArray(v);
+  if (!obj(s.workloadOverrides)) s.workloadOverrides = {};
+  if (!obj(s.workloadOverrides[eid])) s.workloadOverrides[eid] = {};
   return s.workloadOverrides[eid];
 }
 function setValue(path, raw) {

@@ -1442,9 +1442,9 @@ class ExecutionAutoViewTests(unittest.TestCase):
         self.assertTrue(vis.call_args.kwargs.get('watch'))
 
     def test_open_execution_view_watch_failure_is_actionable(self):
-        # A mid-watch failure (e.g. a denied status-download poll) must not
-        # be reported as an "open" failure: the execution already started,
-        # so surface the re-check command instead.
+        # A mid-watch failure (e.g. a transient ARM outage or denied
+        # status-download poll) must not be reported as an "open" failure:
+        # the execution already started, so point back to the live view.
         with mock.patch.object(
                 execution_cmds, 'visualize',
                 side_effect=Exception('Forbidden')), \
@@ -1452,7 +1452,8 @@ class ExecutionAutoViewTests(unittest.TestCase):
             execution_cmds._open_execution_view(
                 mock.Mock(), RG, PROJECT, RUNBOOK, "e9")
         msg = ' '.join(str(c.args) for c in log.warning.call_args_list)
-        self.assertIn('execution show', msg)
+        self.assertIn('execution visualize', msg)
+        self.assertIn('--watch', msg)
         self.assertNotIn('Could not open the execution view', msg)
 
 
